@@ -74,24 +74,29 @@ class FolderDataset(Dataset):
             if not path.is_file():
                 raise FileNotFoundError(path)
         self.crop, self.training = crop, training
+        self.cache = {}
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, index):
-        with Image.open(self.images[index]) as source:
-            image = np.array(source.convert('RGB'))
-        with Image.open(self.masks[index]) as source:
-            mask = np.array(source)
-        if mask.ndim != 2 or image.shape[:2] != mask.shape:
-            raise ValueError('Masks must be single-channel and match image dimensions')
-        if not set(np.unique(mask)).issubset({0, 1, 255}):
-            raise ValueError('Mask values must be 0/1 or 0/255')
-        return tensors(image, (mask > 0).astype(np.uint8), self.training, self.crop)
+        if index not in self.cache:
+            with Image.open(self.images[index]) as source:
+                image = np.array(source.convert('RGB'))
+            with Image.open(self.masks[index]) as source:
+                mask = np.array(source)
+            if mask.ndim != 2 or image.shape[:2] != mask.shape:
+                raise ValueError('Masks must be single-channel and match image dimensions')
+            if not set(np.unique(mask)).issubset({0, 1, 255}):
+                raise ValueError('Mask values must be 0/1 or 0/255')
+            # Decoded once: repeated PNG decoding dominated epoch time on full-size scenes.
+            self.cache[index] = (image, (mask > 0).astype(np.uint8))
+        image, mask = self.cache[index]
+        return tensors(image, mask, self.training, self.crop)
 
 
-def val_dataset(data, crop, val_size, seed):
+def val_dataset(data, crop, val_size, seed, split='val'):
     if data == 'synthetic':
         return SyntheticPonds(val_size, crop + crop // 8, crop,
                               training=False, seed=seed + 100000)
-    return FolderDataset(Path(data) / 'val', crop=crop, training=False)
+    return FolderDataset(Path(data) / split, crop=crop, training=False)

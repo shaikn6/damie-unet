@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 
 from damie_unet.data import FolderDataset, SyntheticPonds, val_dataset
 from damie_unet.engine import DEVICE_CHOICES, evaluate, select_device
@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--crop', type=int, default=256)
     parser.add_argument('--batch', type=int, default=4)
+    parser.add_argument('--repeat', type=int, default=1, help='random crops per image per epoch')
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--out', type=Path, default=Path('runs/synthetic'))
@@ -27,8 +28,8 @@ def main():
     parser.add_argument('--train-size', type=int, default=64, help='synthetic scene count')
     parser.add_argument('--val-size', type=int, default=16, help='synthetic scene count')
     args = parser.parse_args()
-    if min(args.epochs, args.crop, args.batch, args.width) < 1 or args.lr <= 0:
-        parser.error('epochs, crop, batch, width and lr must be positive')
+    if min(args.epochs, args.crop, args.batch, args.width, args.repeat) < 1 or args.lr <= 0:
+        parser.error('epochs, crop, batch, width, repeat and lr must be positive')
     start = time.perf_counter()
     torch.manual_seed(args.seed)
     device = args.device or select_device()
@@ -38,6 +39,7 @@ def main():
     else:
         train = FolderDataset(Path(args.data) / 'train', crop=args.crop)
     val = val_dataset(args.data, args.crop, args.val_size, args.seed)
+    train = ConcatDataset([train] * args.repeat)
     loader = DataLoader(train, batch_size=args.batch, shuffle=True)
     model = UNet(args.width).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -65,7 +67,7 @@ def main():
             torch.save({'model': model.state_dict(), 'epoch': epoch, 'metrics': metrics, 'config': config},
                        args.out / 'best.pt')
         print(f'epoch={epoch} device={device} loss={record["loss"]:.4f} '
-              f'val_miou={metrics["miou"]:.4f} val_f1={metrics["f1_pond"]:.4f}', flush=True)
+              f'val_miou={metrics["miou"]:.4f} val_pond_iou={metrics["iou"][1]:.4f} val_f1={metrics["f1_pond"]:.4f}', flush=True)
     result = {'config': config, 'best': best, 'history': history,
               'wall_seconds': time.perf_counter() - start}
     (args.out / 'metrics.json').write_text(json.dumps(result, indent=2) + '\n')

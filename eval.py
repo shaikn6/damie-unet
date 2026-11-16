@@ -14,6 +14,7 @@ from damie_unet.model import UNet
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkpoint', type=Path, required=True)
+    parser.add_argument('--split', default='val', help='folder split to score (val or test)')
     parser.add_argument('--device', choices=DEVICE_CHOICES, default=None)
     args = parser.parse_args()
     checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=True)
@@ -21,7 +22,7 @@ def main():
     config = checkpoint['config']
     model = UNet(config['width']).to(device)
     model.load_state_dict(checkpoint['model'])
-    dataset = val_dataset(config['data'], config['crop'], config['val_size'], config['seed'])
+    dataset = val_dataset(config['data'], config['crop'], config['val_size'], config['seed'], args.split)
     print(json.dumps(evaluate(model, dataset, device), indent=2))
 
 
