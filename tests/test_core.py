@@ -116,3 +116,14 @@ def test_folder_pads_small_images(tmp_path):
     assert image.shape == (3, 256, 256)
     assert target.shape == (256, 256)
     assert torch.all(target == 1)
+
+
+def test_precision_recall_accuracy():
+    # truth ice: 6 right, 1 called pond; truth pond: 1 missed, 2 right.
+    metric = ConfusionMatrix()
+    metric.update(torch.tensor([0] * 6 + [1] + [0] + [1] * 2), torch.tensor([0] * 7 + [1] * 3))
+    result = metric.compute()
+    assert result['precision_pond'] == pytest.approx(2 / 3)
+    assert result['recall_pond'] == pytest.approx(2 / 3)
+    assert result['accuracy'] == pytest.approx(0.8)
+    assert result['f1_macro'] == pytest.approx((2 / 3 + 12 / 14) / 2)

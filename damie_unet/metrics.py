@@ -21,9 +21,22 @@ class ConfusionMatrix:
         counts = self.matrix.cpu() if self.matrix is not None else torch.zeros((2, 2), dtype=torch.int64)
         matrix = counts.double()
         true_positive = matrix.diag()
-        union = matrix.sum(0) + matrix.sum(1) - true_positive
+        truth, predicted = matrix.sum(1), matrix.sum(0)
         # An absent class has IoU zero and participates in the two-class mean.
-        iou = true_positive / union.clamp_min(1)
-        f1 = 2 * matrix[1, 1] / (matrix[1].sum() + matrix[:, 1].sum()).clamp_min(1)
+        iou = true_positive / (truth + predicted - true_positive).clamp_min(1)
+        f1 = 2 * true_positive / (truth + predicted).clamp_min(1)
         return {'iou': iou.tolist(), 'miou': iou.mean().item(),
-                'f1_pond': f1.item(), 'confusion_matrix': counts.tolist()}
+                'f1_pond': f1[1].item(), 'f1_macro': f1.mean().item(),
+                'precision_pond': (true_positive[1] / predicted[1].clamp_min(1)).item(),
+                'recall_pond': (true_positive[1] / truth[1].clamp_min(1)).item(),
+                'accuracy': (true_positive.sum() / matrix.sum().clamp_min(1)).item(),
+                'confusion_matrix': counts.tolist()}
+
+
+def pond_iou_per_image(predictions, masks):
+    """Pond IoU of each image in a batch; a scene with no true or predicted pond scores zero,
+    the same rule as the pooled metric."""
+    pond_prediction, pond_truth = predictions == 1, masks == 1
+    intersection = (pond_prediction & pond_truth).flatten(1).sum(1)
+    union = (pond_prediction | pond_truth).flatten(1).sum(1)
+    return (intersection / union.clamp_min(1)).tolist()

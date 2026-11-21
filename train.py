@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--crop', type=int, default=256)
     parser.add_argument('--batch', type=int, default=4)
     parser.add_argument('--repeat', type=int, default=1, help='random crops per image per epoch')
+    parser.add_argument('--val-every', type=int, default=1, help='validate every N epochs and at the end')
+    parser.add_argument('--resume', action='store_true', help='continue from <out>/last.pt')
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--out', type=Path, default=Path('runs/synthetic'))
@@ -28,8 +30,8 @@ def main():
     parser.add_argument('--train-size', type=int, default=64, help='synthetic scene count')
     parser.add_argument('--val-size', type=int, default=16, help='synthetic scene count')
     args = parser.parse_args()
-    if min(args.epochs, args.crop, args.batch, args.width, args.repeat) < 1 or args.lr <= 0:
-        parser.error('epochs, crop, batch, width, repeat and lr must be positive')
+    if min(args.epochs, args.crop, args.batch, args.width, args.repeat, args.val_every) < 1 or args.lr <= 0:
+        parser.error('epochs, crop, batch, width, repeat, val-every and lr must be positive')
     start = time.perf_counter()
     torch.manual_seed(args.seed)
     device = args.device or select_device()
@@ -48,8 +50,16 @@ def main():
     config = vars(args).copy()
     config['out'] = str(args.out)
     config['device'] = device
-    history, best = [], None
-    for epoch in range(1, args.epochs + 1):
+    history, best, first = [], None, 1
+    last = args.out / 'last.pt'
+    if args.resume and last.is_file():
+        # weights_only=False: last.pt is written by this script and holds optimizer state.
+        state = torch.load(last, map_location=device, weights_only=False)
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+        history, best, first = state['history'], state['best'], state['epoch'] + 1
+        print(f'resumed after epoch {state["epoch"]}', flush=True)
+    for epoch in range(first, args.epochs + 1):
         model.train()
         loss_sum = torch.zeros((), device=device)
         for images, masks in loader:
@@ -59,15 +69,22 @@ def main():
             loss.backward()
             optimizer.step()
             loss_sum += loss.detach() * len(images)
-        metrics = evaluate(model, val, device)
-        record = {'epoch': epoch, 'loss': loss_sum.item() / len(train), **metrics}
-        history.append(record)
-        if best is None or metrics['miou'] > best['miou']:
-            best = record
-            torch.save({'model': model.state_dict(), 'epoch': epoch, 'metrics': metrics, 'config': config},
-                       args.out / 'best.pt')
-        print(f'epoch={epoch} device={device} loss={record["loss"]:.4f} '
-              f'val_miou={metrics["miou"]:.4f} val_pond_iou={metrics["iou"][1]:.4f} val_f1={metrics["f1_pond"]:.4f}', flush=True)
+        mean_loss = loss_sum.item() / len(train)
+        progress = f'epoch={epoch} device={device} loss={mean_loss:.4f}'
+        if epoch % args.val_every == 0 or epoch == args.epochs:
+            metrics = evaluate(model, val, device)
+            record = {'epoch': epoch, 'loss': mean_loss, **metrics}
+            history.append(record)
+            if best is None or metrics['miou'] > best['miou']:
+                best = record
+                torch.save({'model': model.state_dict(), 'epoch': epoch, 'metrics': metrics,
+                            'config': config}, args.out / 'best.pt')
+            progress += (f' val_miou={metrics["miou"]:.4f} val_pond_iou={metrics["iou"][1]:.4f} '
+                         f'val_f1={metrics["f1_pond"]:.4f}')
+        # Saved every epoch so a crash between validations loses no training.
+        torch.save({'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
+                    'epoch': epoch, 'history': history, 'best': best}, last)
+        print(progress, flush=True)
     result = {'config': config, 'best': best, 'history': history,
               'wall_seconds': time.perf_counter() - start}
     (args.out / 'metrics.json').write_text(json.dumps(result, indent=2) + '\n')

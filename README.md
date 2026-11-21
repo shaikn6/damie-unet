@@ -32,51 +32,77 @@ Scene seeds are fixed; crops vary during training. Validation uses separate seed
 `best.pt` selects the highest validation mIoU; `metrics.json` holds config,
 per-epoch metrics, best epoch and total `wall_seconds`.
 
-## Real data later
+## Real DAMIE data
 
-Arrange approved data locally with separate splits and matching filename stems:
-
-```text
-data/damie/
-  train/images/example.jpg
-  train/masks/example.png
-  val/images/example.jpg
-  val/masks/example.png
-  test/images/example.jpg
-  test/masks/example.png
-```
-
-Images may be PNG or JPG/JPEG. Masks must be single-channel PNG: 0 = ice,
-1 = pond (0/255 is also accepted, with 255 = pond). Confirm the lab's label
-convention and arrange its official splits before use. Small training images
-are edge-padded to the crop size; evaluation preserves full size.
+The lab's download has `<split>/image/*.PNG` and palette-mode labels in
+`<split>/labels/*.png`, already split 120 / 30 / 20 (train / val / test). Convert it once:
 
 ```sh
-python train.py --data data/damie --width 16 --epochs 5 --out runs/damie
-python eval.py --checkpoint runs/damie/best.pt
+python scripts/prepare_damie.py data/raw data/damie
+python train.py --data data/damie --width 16 --epochs 100 --batch 8 --repeat 15 --val-every 5 --out runs/w16_seed0
+python eval.py --checkpoint runs/w16_seed0/best.pt --split test
 ```
 
-No source changes are needed for this layout. Keep lab data and trained weights
-local; `data/` and `runs/` are ignored.
+`prepare_damie.py` symlinks the images and writes 0/1 masks into the layout
+`FolderDataset` reads (`<split>/images`, `<split>/masks`, matching stems; masks 0 = ice,
+1 = pond, 0/255 also accepted). In the labels, palette index 1 is pond and index 3 is ice;
+this was checked against mean image colour (pond pixels are darker and bluer). Index 0
+appears on 3,072 stray pixels in six label files (none in test) and is treated as non-pond.
+The script stops if a split's count, a label's mode or a label value is unexpected.
+
+`--repeat` sets random crops per image per epoch, `--val-every` spaces out the
+full-image validation passes, and `--resume` continues from `<out>/last.pt` after a crash.
+Keep lab data and trained weights local; `data/` and `runs/` are ignored.
 
 ## Results
 
-Metrics accumulate one confusion matrix over the entire evaluation set.
-mIoU is the mean of ice and pond IoU; F1 is for ponds only. An absent class
-scores zero and remains in the mean. Per-class IoU and the matrix are also saved.
+Metrics accumulate one confusion matrix over the entire evaluation set (pixel-pooled).
+Precision, recall, F1 and IoU are for the pond class; mIoU is the mean of ice and pond
+IoU. The per-image row averages each scene's pond IoU instead of pooling pixels.
 
-| Run | Val mIoU | Pond F1 | Wall time |
+DAMIE test split (20 images), width-16 U-Net (0.5M parameters), Apple MPS. Each seed's
+checkpoint was chosen on the validation split and scored on test once.
+
+| Metric | Seed 0 (100 epochs) | Seeds 0–2, mean ± std | Paper's U-Net (Table III) |
 | --- | --- | --- | --- |
-| Synthetic, width 16, 5 epochs, CPU, seed 0 (best: epoch 5) | 0.9829 | 0.9892 | 31.25 s |
-| Paper's U-Net on DAMIE, reported test metrics | 0.885 | 0.938 | — |
-| This repo on DAMIE (pending data) | — | — | — |
+| Pond IoU | 0.9607 | 0.9555 ± 0.0053 | 0.885 (reported as "mIoU") |
+| Pond IoU, per-image mean | 0.9552 | 0.9487 ± 0.0064 | — |
+| mIoU, two-class mean | 0.9741 | 0.9707 ± 0.0035 | — |
+| Pond F1 | 0.9800 | 0.9772 ± 0.0028 | 0.938 |
+| F1, two-class mean | 0.9869 | 0.9851 ± 0.0018 | — |
+| Precision | 0.9848 | 0.9853 ± 0.0015 | 0.969 |
+| Recall | 0.9752 | 0.9693 ± 0.0053 | 0.914 |
+| Accuracy | 99.05% | 98.92% ± 0.13 | 95.75% |
 
-Synthetic numbers only check the pipeline; they are not comparable to DAMIE.
-The measured run used the quickstart training command above.
+Seeds 1 and 2 ran 30 epochs, because seed 0's validation score was flat after about
+epoch 15. Wall time: 64 min for seed 0, 24–28 min for the others.
+
+How to read the comparison:
+
+- **Which paper metric is which.** The paper does not define its metrics. Its U-Net row
+  is consistent with pond-class numbers: IoU = F1 / (2 − F1) = 0.938 / 1.062 = 0.883,
+  close to the reported 0.885, and 2PR / (P + R) = 0.941, close to the reported F1.
+  The paper's "mIoU" is therefore compared with pond IoU here; the two-class readings
+  are listed as well.
+- **Not a reproduction.** This is a lighter variant: width 16 instead of the standard
+  width 64, random 256×256 crops instead of full 1000×1000 patches, Adam at 1e-3 instead
+  of 1e-4, batch 8, no augmentation and no learning-rate schedule.
+- **Small test set.** 20 images and three seeds; differences of about 0.01 are noise.
+  Whether these are the same 20 test images the paper scored is assumed from the
+  matching 120 / 30 / 20 split, not confirmed.
+- **Splits.** Test shares no flight series with train. Validation shares one series
+  (9 of 30 images), so checkpoint selection is slightly optimistic; test is unaffected.
+- **Pooling.** The paper may average per image rather than pool pixels; both are given.
+
+The gap to the paper's row comes with protocol differences that cannot be resolved from
+the paper, so it should not be read as a finding about the paper's model.
+
+The first attempt at seed 0 stopped at epoch 34 with an MPS GPU error; the reported run
+is a clean rerun from scratch with the same seed, which matched the first attempt's
+validation numbers exactly up to that point.
+
+Synthetic pipeline check (not comparable to DAMIE): width 16, 5 epochs, CPU, seed 0,
+val mIoU 0.9829, pond F1 0.9892, 31 s.
 
 Paper reference: Sultana et al., *ArcticNet for Semantic Segmentation of Meltpond
-Regions in the Arctic Sea Ice*, IEEE JSTARS, 2026, Table III. Reported U-Net
-mIoU 0.885 / F1 0.938: **to be confirmed against the paper**, including metric
-conventions. This baseline trains on crops rather than the paper's full patches.
-
-MIT License. Copyright (c) 2026 Nagizaaz Shaik.
+Regions in the Arctic Sea Ice*, IEEE JSTARS, 2026, Table III.
