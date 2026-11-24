@@ -10,9 +10,11 @@ class ConfusionMatrix:
     def update(self, prediction, target):
         prediction = prediction.detach().to(torch.int64).flatten()
         target = target.detach().to(torch.int64).flatten()
-        counts = torch.bincount(target * 2 + prediction, minlength=4)
-        if counts.numel() != 4:
+        if ((target < 0) | (target > 1) | (prediction < 0) | (prediction > 1)).any():
             raise ValueError('labels must be 0 (ice) or 1 (pond)')
+        # Four masked sums instead of torch.bincount, which is ~330 ms/image on MPS.
+        code = target * 2 + prediction
+        counts = torch.stack([(code == i).sum() for i in range(4)])
         if self.matrix is None:
             self.matrix = torch.zeros((2, 2), dtype=torch.int64, device=counts.device)
         self.matrix += counts.reshape(2, 2)
