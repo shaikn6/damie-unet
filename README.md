@@ -1,5 +1,7 @@
 # damie-unet
 
+[![CI](https://github.com/shaikn6/damie-unet/actions/workflows/ci.yml/badge.svg)](https://github.com/shaikn6/damie-unet/actions/workflows/ci.yml)
+
 A plain PyTorch U-Net baseline for the University of Dayton Vision Lab's
 DAMIE melt-pond dataset. Request DAMIE from the
 [lab](https://sites.google.com/a/udayton.edu/vasari1/research/earth-vision/damie).
