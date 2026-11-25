@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
 
 
-def tensors(image, mask, training, crop):
+def tensors(image, mask, training, crop, augment=False):
     if training:
         h, w = mask.shape
         if h < crop or w < crop:
@@ -19,6 +19,12 @@ def tensors(image, mask, training, crop):
         y = torch.randint(h - crop + 1, ()).item()
         x = torch.randint(w - crop + 1, ()).item()
         image, mask = image[y:y + crop, x:x + crop], mask[y:y + crop, x:x + crop]
+        if augment:
+            # Aerial scenes have no fixed up direction: random flip and 90-degree rotation.
+            turns, flip = torch.randint(4, ()).item(), torch.randint(2, ()).item()
+            image, mask = np.rot90(image, turns), np.rot90(mask, turns)
+            if flip:
+                image, mask = image[:, ::-1], mask[:, ::-1]
     return (torch.from_numpy(np.array(image, dtype=np.uint8).transpose(2, 0, 1).copy()),
             torch.from_numpy(np.array(mask, dtype=np.int64)))
 
@@ -61,7 +67,7 @@ class SyntheticPonds(Dataset):
 class FolderDataset(Dataset):
     """Match image stems to PNG masks; accept mask values {0,1} or {0,255}."""
 
-    def __init__(self, root, crop=256, training=True):
+    def __init__(self, root, crop=256, training=True, augment=False):
         root = Path(root)
         self.images = sorted(p for p in (root / 'images').glob('*')
                              if p.suffix.lower() in {'.png', '.jpg', '.jpeg'})
@@ -73,7 +79,7 @@ class FolderDataset(Dataset):
         for path in self.masks:
             if not path.is_file():
                 raise FileNotFoundError(path)
-        self.crop, self.training = crop, training
+        self.crop, self.training, self.augment = crop, training, augment
         self.cache = {}
 
     def __len__(self):
@@ -92,7 +98,7 @@ class FolderDataset(Dataset):
             # Decoded once: repeated PNG decoding dominated epoch time on full-size scenes.
             self.cache[index] = (image, (mask > 0).astype(np.uint8))
         image, mask = self.cache[index]
-        return tensors(image, mask, self.training, self.crop)
+        return tensors(image, mask, self.training, self.crop, self.augment)
 
 
 def val_dataset(data, crop, val_size, seed, split='val'):

@@ -123,6 +123,14 @@ Only the worst image (0.870) falls below the paper's overall 0.885; the next fou
 0.918 to 0.935. The low-pond scenes are where the score is most sensitive, since a few
 missed pixels are a large share of a small pond area.
 
+### Augmentation did not help
+
+`train.py --augment` adds random flips and 90-degree rotations to the training crops. At
+30 epochs on the same three seeds, mean test pond IoU was 0.9486 with it and 0.9524
+without (−0.0038, below the roughly 0.01 this test set treats as noise, so no measurable gain), and the
+five worst images averaged 0.9045 against 0.9102. The reported results above use no
+augmentation.
+
 Synthetic pipeline check (not comparable to DAMIE): width 16, 5 epochs, CPU, seed 0,
 val mIoU 0.9829, pond F1 0.9892, 31 s.
 

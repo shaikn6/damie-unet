@@ -10,7 +10,7 @@ import pytest
 import torch
 from PIL import Image
 
-from damie_unet.data import FolderDataset, SyntheticPonds
+from damie_unet.data import FolderDataset, SyntheticPonds, tensors
 from damie_unet.metrics import ConfusionMatrix
 from damie_unet.model import UNet
 
@@ -127,3 +127,13 @@ def test_precision_recall_accuracy():
     assert result['recall_pond'] == pytest.approx(2 / 3)
     assert result['accuracy'] == pytest.approx(0.8)
     assert result['f1_macro'] == pytest.approx((2 / 3 + 12 / 14) / 2)
+
+
+def test_augmentation_keeps_image_and_mask_aligned():
+    rng = np.random.default_rng(0)
+    mask = (rng.random((40, 40)) > 0.5).astype(np.uint8)
+    image = np.stack([mask * 255] * 3, axis=2).astype(np.uint8)
+    for _ in range(30):
+        out_image, out_mask = tensors(image, mask, True, 32, augment=True)
+        assert out_image.shape == (3, 32, 32) and out_mask.shape == (32, 32)
+        assert torch.equal(out_image[0], out_mask.to(torch.uint8) * 255)

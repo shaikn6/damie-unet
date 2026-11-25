@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--repeat', type=int, default=1, help='random crops per image per epoch')
     parser.add_argument('--val-every', type=int, default=1, help='validate every N epochs and at the end')
     parser.add_argument('--resume', action='store_true', help='continue from <out>/last.pt')
+    parser.add_argument('--augment', action='store_true', help='random flips and 90-degree rotations (folder data only)')
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--out', type=Path, default=Path('runs/synthetic'))
@@ -39,7 +40,7 @@ def main():
         size = args.crop + args.crop // 8
         train = SyntheticPonds(args.train_size, size, args.crop, seed=args.seed)
     else:
-        train = FolderDataset(Path(args.data) / 'train', crop=args.crop)
+        train = FolderDataset(Path(args.data) / 'train', crop=args.crop, augment=args.augment)
     val = val_dataset(args.data, args.crop, args.val_size, args.seed)
     train = ConcatDataset([train] * args.repeat)
     loader = DataLoader(train, batch_size=args.batch, shuffle=True)
