@@ -103,6 +103,26 @@ The first attempt at seed 0 stopped at epoch 34 with an MPS GPU error; the repor
 is a clean rerun from scratch with the same seed, which matched the first attempt's
 validation numbers exactly up to that point.
 
+### Per-image results: low-pond scenes score lowest
+
+Scored one image at a time, the score tracks how much of the image is pond (correlation
+0.82 across the 20 test images). The five worst and three best images:
+
+| Image | Pond IoU (mean of 3 seeds) | Pond share of image |
+| --- | --- | --- |
+| 182_013 | 0.870 | 9.2% |
+| 182_014 | 0.918 | 11.6% |
+| 188_022 | 0.925 | 17.3% |
+| 188_019 | 0.934 | 12.5% |
+| 188_020 | 0.935 | 19.6% |
+| 182_022 | 0.972 | 40.2% |
+| 191_005 | 0.975 | 25.9% |
+| 182_019 | 0.977 | 31.5% |
+
+Only the worst image (0.870) falls below the paper's overall 0.885; the next four score
+0.918 to 0.935. The low-pond scenes are where the score is most sensitive, since a few
+missed pixels are a large share of a small pond area.
+
 Synthetic pipeline check (not comparable to DAMIE): width 16, 5 epochs, CPU, seed 0,
 val mIoU 0.9829, pond F1 0.9892, 31 s.
 
